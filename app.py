@@ -24,7 +24,7 @@ class DataBase:
 
     async def event_exists(self , user_id , event_name):
         query = """
-        SELECT 1 FROM EVENTS
+        SELECT 1 FROM events
         WHERE (user_id) = $1 AND (event_name) = $2
         """
         row = await self.conn.fetchrow(query , user_id , event_name)
@@ -34,6 +34,19 @@ class DataBase:
         try:
             self.conn = await asyncpg.connect(self.DATABASE_URL)
             print("Database is Connected...")
+            await self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    username TEXT
+                    );
+                """)
+            await self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS events (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                    event_name TEXT NOT NULL,
+                    event_time TIMESTAMP NOT NULL
+                );""")
         except:
             print("Couldn't Connect to Database...")
 
@@ -44,7 +57,7 @@ class DataBase:
         """
         if await self.event_exists(user_id , event_name):
             print("Event already exists, skipping insert")
-            return
+            return "exists"
 
         await self.conn.execute(query , user_id , event_name , event_time)
         print("inserted in events")
