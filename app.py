@@ -1,5 +1,4 @@
 import asyncpg
-import asyncio
 from datetime import datetime
 from telegram import Update
 from telegram.ext import (
@@ -11,16 +10,12 @@ from telegram.ext import (
     Application
 )
 import jdatetime
-
+import os
 
 class DataBase:
     def __init__(self):
-        self.user = "postgres"
-        self.password = "S!fy"
-        self.database= "tel_event_db"
-        self.host = "localhost"
         self.conn = None
-    
+        self.DATABASE_URL = self.DATABASE_URL = os.getenv("DATABASE_URL")
 
     async def user_exists(self , user_id) -> bool:
         query = "SELECT user_id FROM users WHERE user_id = $1"
@@ -36,24 +31,22 @@ class DataBase:
         return row is not None
 
     async def run(self):
-        self.conn = await asyncpg.connect(
-            user=self.user ,
-            password= self.password ,
-            database=self.database ,
-            host=self.host
-        )
-        print("Database is connected...")
+        try:
+            self.conn = await asyncpg.connect(self.DATABASE_URL)
+            print("Database is Connected...")
+        except:
+            print("Couldn't Connect to Database...")
 
-    async def insert_events(self , user_id , event_name):
+    async def insert_events(self , user_id , event_name , event_time):
         query = """
-        INSERT INTO events (user_id, event_name)
-        VALUES ($1, $2)
+        INSERT INTO events (user_id, event_name , event_time)
+        VALUES ($1, $2, $3)
         """
         if await self.event_exists(user_id , event_name):
             print("Event already exists, skipping insert")
             return
 
-        await self.conn.execute(query , user_id , event_name)
+        await self.conn.execute(query , user_id , event_name , event_time)
         print("inserted in events")
         return
 
@@ -78,10 +71,15 @@ class DataBase:
         if not rows:
             return "You have not added any events yet."
         
-        upcoming = "Your upcoming event:\n\n"
-        date_str = rows[0]["event_time"].strftime("%d/%m/%Y")
-        delta = (rows[0]["event_time"].date() - datetime.now().date()).days
-        upcoming += f"• {rows[0]['event_name']} - {date_str} (in {delta} days)\n\n\n\n"
+        i = -1
+        delta = -1
+        while delta <= 0:
+            i += 1
+            delta = (rows[i]["event_time"].date() - datetime.now().date()).days
+        if delta >= 0:
+            upcoming = "Your upcoming event:\n\n"
+            date_str = rows[i]["event_time"].strftime("%d/%m/%Y")
+            upcoming += f"• {rows[i]['event_name']} - {date_str} (in {delta} days)\n\n\n\n"
 
         result = "Your events:\n\n"
         for row in rows:
@@ -119,7 +117,7 @@ class DataBase:
 
 class Bot:
     def __init__(self):
-        self.BOT_API = "8576466503:AAFGv9L4TSe2iiMWsIX7treumtCW_s99NKI"
+        self.BOT_API = os.getenv("BOT_API")
         self.app = ApplicationBuilder().token(self.BOT_API).build()
         self.db = DataBase()
 
@@ -160,7 +158,7 @@ class Bot:
 
         await self.db.insert_users(user.id , user.username)
 
-        event_status = await self.db.insert_events(user.id , event_name)
+        event_status = await self.db.insert_events(user.id , event_name , event_time)
 
         if event_status == "exists":
             await update.effective_chat.send_message(text=f"Event is already in your Schedule")
@@ -219,7 +217,6 @@ class Bot:
         result = await self.db.update_event(user.id , event_name , event_time)
         await update.message.reply_text(result)
 
-
     async def show_events(self , update : Update , context : ContextTypes.DEFAULT_TYPE):
         events = await self.db.show_user_events(update.effective_user.id)
         await update.effective_chat.send_message(text=events)
@@ -275,6 +272,7 @@ class Bot:
     async def startup(self , app : Application):
         await self.db.run()
 
+
     def run(self):
 
         self._setup_handlers()
@@ -292,7 +290,6 @@ class Bot:
 def main():
     bot = Bot()
     bot.run()
-
 
 
 if __name__ == "__main__":
